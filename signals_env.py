@@ -3,7 +3,7 @@ import signal
 import sys
 
 def handle_sigint(sig, frame):
-    """Manejador para la señal SIGINT (Ctrl+C) [Tanenbaum 1.8]"""
+    """Manejador para la señal SIGINT (Ctrl+C) """
     # Escribir usando llamada directa al descriptor de salida estándar (1)
     os.write(1, b"\n[MyShell] Presione 'exit' para salir > ")
 

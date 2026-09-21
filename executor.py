@@ -2,7 +2,7 @@ import os
 import sys
 
 def execute_external_command(args):
-    """Manejo de llamadas al sistema fork, execvp y waitpid [Tanenbaum 1.6.1]"""
+    """Manejo de llamadas al sistema fork, execvp y waitpid """
     try:
         # 1. Duplicar el proceso actual mediante fork()
         pid = os.fork()

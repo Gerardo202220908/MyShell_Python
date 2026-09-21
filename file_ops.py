@@ -8,10 +8,10 @@ def builtin_cat(args):
         return 1
 
     try:
-        # 1. open() directo al SO para obtener el descriptor de archivo (fd)
+        # open() directo al SO para obtener el descriptor de archivo (fd)
         fd = os.open(args[1], os.O_RDONLY)
         
-        # 2. read() y write() directos
+        # read() y write() directos
         while True:
             # Lee un bloque de 1024 bytes desde el descriptor de archivo
             chunk = os.read(fd, 1024)
@@ -20,7 +20,7 @@ def builtin_cat(args):
             # Escribe directamente en el descriptor 1 (stdout - salida estándar)
             os.write(1, chunk)
             
-        # 3. close() para liberar el descriptor
+        # close() para liberar el descriptor
         os.close(fd)
         
     except FileNotFoundError:
@@ -40,7 +40,7 @@ def builtin_write(args):
     text_content = " ".join(args[2:]) + "\n"
 
     try:
-        # Abre/Crea el archivo con banderas POSIX y permisos 0o644 (rw-r--r--)
+        #Abre/Crea el archivo con banderas POSIX y permisos 0o644 (rw-r--r--)
         flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
         fd = os.open(file_path, flags, 0o644)
         
