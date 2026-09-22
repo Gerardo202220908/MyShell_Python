@@ -2,35 +2,35 @@ import os
 import sys
 
 def execute_external_command(args):
-    """Manejo de llamadas al sistema fork, execvp y waitpid """
+    """
+    Ejecuta comandos externos creando un proceso hijo (fork), reemplazando la imagen (execvp)
+    y esperando la finalización (waitpid). Retorna el código de salida real de POSIX.
+    """
     try:
-        # 1. Duplicar el proceso actual mediante fork()
         pid = os.fork()
         
-        if pid < 0:
-            print("myshell: Error al ejecutar os.fork()", file=sys.stderr)
-            return 1
-            
-        elif pid == 0:
-            # 2. Proceso Hijo: Reemplaza su imagen de memoria usando execvp()
-            # execvp busca automáticamente el ejecutable en el $PATH del sistema
+        if pid == 0:
+            # Proceso Hijo: Reemplaza imagen de memoria
             try:
                 os.execvp(args[0], args)
             except FileNotFoundError:
                 print(f"myshell: comando no encontrado: {args[0]}", file=sys.stderr)
-                os._exit(1)
+                os._exit(127)
             except Exception as e:
-                print(f"myshell: error de ejecucion: {e}", file=sys.stderr)
-                os._exit(1)
-                
+                print(f"myshell: error de ejecucion en '{args[0]}': {e}", file=sys.stderr)
+                os._exit(126)
         else:
-            # 3. Proceso Padre: Espera la finalización del hijo con waitpid()
-            while True:
-                _, status = os.waitpid(pid, 0)
-                if os.WIFEXITED(status) or os.WIFSIGNALED(status):
-                    break
-                    
-    except Exception as e:
-        print(f"myshell: Error al gestionar el proceso: {e}", file=sys.stderr)
-        
-    return 1
+            # Proceso Padre: Espera activa/bloqueante
+            _, status = os.waitpid(pid, 0)
+            
+            # Evaluar estado de salida de POSIX
+            if os.WIFEXITED(status):
+                return os.WEXITSTATUS(status)  # Retorna el estado real (0 = éxito)
+            elif os.WIFSIGNALED(status):
+                return 128 + os.WTERMSIG(status) # Proceso interrumpido por señal
+                
+            return 1
+
+    except OSError as e:
+        print(f"myshell: error al crear proceso (fork): {os.strerror(e.errno)}", file=sys.stderr)
+        return 1

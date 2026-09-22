@@ -2,48 +2,46 @@ import sys
 import shlex
 from signals_env import init_signals, print_prompt
 from executor import execute_external_command
-from file_ops import builtin_cat, builtin_write
+from file_ops import builtin_cat, builtin_write, builtin_env
 
 def main():
-    # Registrar captura de señales (SIGINT - Ctrl+C) [Tanenbaum 1.8]
     init_signals()
 
     while True:
         try:
             print_prompt()
             line = sys.stdin.readline()
-            
-            # EOF (Ctrl+D) finaliza el shell
-            if not line:
+
+            if not line:  # Manejo de EOF (Ctrl+D)
                 print("\nSaliendo de MyShell...")
                 break
-                
+
             line = line.strip()
             if not line:
                 continue
 
-            # Tokenizar argumentos respectando comillas
             args = shlex.split(line)
-            
-            # Salida explícita
-            if args[0] == "exit":
+            if not args:
+                continue
+
+            command = args[0]
+
+            if command == "exit":
                 print("Saliendo de MyShell...")
                 break
-                
-            # Comandos built-in de archivos directos al kernel
-            elif args[0] == "mycat":
+            elif command == "mycat":
                 builtin_cat(args)
-            elif args[0] == "mywrite":
+            elif command == "mywrite":
                 builtin_write(args)
+            elif command in ["myenv", "getenv"]:
+                builtin_env(args)
             else:
-                # Ejecutar comando mediante fork(), execvp() y waitpid()
                 execute_external_command(args)
 
-        except KeyboardInterrupt:
-            # Manejo secundario por si interrumpe el input de sys.stdin
-            continue
+        except ValueError as e:
+            print(f"myshell: error de sintaxis en el comando: {e}", file=sys.stderr)
         except Exception as e:
-            print(f"Error inesperado: {e}", file=sys.stderr)
+            print(f"myshell: error inesperado: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

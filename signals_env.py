@@ -3,21 +3,24 @@ import signal
 import sys
 
 def handle_sigint(sig, frame):
-    """Manejador para la señal SIGINT (Ctrl+C) """
-    # Escribir usando llamada directa al descriptor de salida estándar (1)
+    """
+    Manejador para la señal SIGINT (Ctrl+C).
+    Evita que el Shell colapse y mantiene la ejecucion activa.
+    """
     os.write(1, b"\n[MyShell] Presione 'exit' para salir > ")
 
 def init_signals():
-    """Captura la señal SIGINT para que el shell no muera"""
+    """Captura la señal SIGINT a nivel de proceso"""
     signal.signal(signal.SIGINT, handle_sigint)
 
 def print_prompt():
-    """Obtiene el usuario y directorio actual desde el entorno"""
-    user = os.environ.get("USER", "usuario")
+    """Obtiene el usuario y directorio actual respaldandose en variables de entorno"""
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or "usuario"
+    
     try:
         cwd = os.getcwd()
     except Exception:
-        cwd = "?"
+        cwd = os.environ.get("PWD", "?")
     
     prompt = f"{user}@myshell-py:{cwd}$ "
     sys.stdout.write(prompt)
