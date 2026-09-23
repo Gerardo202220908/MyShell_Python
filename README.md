@@ -1,77 +1,106 @@
 # MyShell POSIX — Proyecto CoreOS (IF0702)
 
-Intérprete de comandos (Shell) interactivo desarrollado en Python sobre entornos POSIX (Linux/WSL2). El proyecto implementa gestión de procesos, operaciones de Entrada/Salida a nivel de kernel mediante descriptores de archivo y manejo de señales del sistema.
+**MyShell POSIX** es un intérprete de comandos (*shell*) interactivo desarrollado bajo una arquitectura modular desacoplada en **Python 3** y respaldado por una versión binaria equivalente en **C nativo (`myshell.c`)**. El proyecto demuestra de manera práctica el cruce de fronteras entre el Espacio de Usuario (*User Space*) y el Espacio del Kernel (*Kernel Space*) mediante llamadas al sistema (*system calls*) directas en entornos POSIX (Linux / WSL2).
 
 ---
 
-## Requisitos y Entorno de Ejecución
+## Integrantes del Grupo
+* Matias Guevara, Gerardo Joel
+* Ochoa Zuñiga, Marcelo Fabian
+* Barcena Aldave, Giovanni Franco Luca
+* Canchos Lopez, Alex Josemir
+* Caballero Medina, Gianfranco
 
-- **Sistema Operativo:** Linux (Ubuntu / WSL2 en Windows)
-- **Lenguaje:** Python 3.8+
-- **Librerías:** Módulos nativos (`os`, `sys`, `signal`, `shlex`)
+---
+
+## Requisitos del Entorno de Ejecución
+
+- **Sistema Operativo:** Linux (Ubuntu nativo o WSL2 en Windows).
+- **Entorno Python:** Python 3.8+ (Utiliza exclusivamente la biblioteca estándar: `os`, `sys`, `signal`, `shlex`, `unittest`).
+- **Entorno C (Opcional para binario):** Compilador `gcc` (`build-essential`).
 
 ---
 
 ## Arquitectura y Estructura del Código
 
-El proyecto sigue una arquitectura modular para separar responsabilidades y facilitar el mantenimiento:
+El proyecto sigue una arquitectura modular en Python para garantizar la separación de responsabilidades:
 
-| Archivo | Descripción / Responsabilidad |
+| Archivo / Módulo | Responsabilidad y Mapeo POSIX |
 | :--- | :--- |
-| `main.py` | Punto de entrada del programa. Administra el bucle principal REPL (Read-Eval-Print Loop), captura la entrada del usuario y coordina la ejecución. |
-| `executor.py` | Módulo de gestión de procesos. Implementa la creación y sincronización de procesos del sistema. |
-| `file_ops.py` | Operaciones de E/S a bajo nivel usando llamadas al sistema (syscalls) directas del kernel. |
-| `signals_env.py` | Configuración del entorno e intercepción de señales POSIX para el control de interrupciones. |
+| `main.py` | Punto de entrada del programa. Administra el bucle **REPL** (*Read-Eval-Print Loop*), captura entradas y realiza tokenización segura respetando cadenas entre comillas mediante `shlex.split()`. |
+| `executor.py` | Gestor de procesos externos. Implementa la creación, reemplazo de memoria y sincronización mediante `os.fork()`, `os.execvp()` y `os.waitpid()`. |
+| `file_ops.py` | Operaciones de E/S a bajo nivel y variables de entorno. Omite librerías de alto nivel utilizando `os.open()`, `os.read()`, `os.write()`, `os.close()` y `os.environ`. |
+| `signals_env.py` | Control de interrupciones asíncronas y prompt dinámico. Registra el manejador de la señal `SIGINT` (`Ctrl + C`) mediante `signal.signal()`. |
+| `myshell.c` | Respaldo en C nativo compilable para evaluación estricta a nivel binario POSIX. |
+| `test_suite.py` | Suite de pruebas unitarias automatizadas basadas en `unittest`. |
 
 ---
 
-## Cumplimiento de la Rúbrica de Evaluación
+## Funcionalidades e Implementación Técnica
 
 ### 1. Gestión de Procesos (`executor.py`)
-- **`os.fork()`**: Duplica el proceso actual para crear un proceso hijo independiente.
-- **`os.execvp()`**: Reemplaza la imagen de memoria del proceso hijo cargando y ejecutando el binario del comando indicado por el usuario (ej. `ls`, `pwd`, `mkdir`).
-- **`os.waitpid()`**: Fuerza al proceso padre (el Shell) a esperar a que el hijo finalice su ejecución antes de volver a solicitar un nuevo comando al usuario.
+- **`os.fork()`**: Duplica el proceso padre para crear un proceso hijo independiente en el espacio de usuario.
+- **`os.execvp()`**: Reemplaza la imagen de memoria del proceso hijo cargando el binario del comando solicitado (ej. `ls`, `pwd`). Si falla, retorna código POSIX `127`.
+- **`os.waitpid()`**: Bloquea al proceso padre hasta que el hijo finalice, recuperando el código de estado real (*exit status*) mediante `WIFEXITED` y `WEXITSTATUS`.
 
-### 2. Operaciones de E/S a Nivel de Kernel (`file_ops.py`)
-No se utilizan las funciones de alto nivel de Python (`open()`, `read()`, `write()`). Se emplean llamadas al sistema con descriptores de archivo:
+### 2. Operaciones de Entrada/Salida a Nivel de Kernel (`file_ops.py`)
+No utiliza abstracciones de alto nivel de Python (`open()`, `read()`, `write()` de archivos standard). Opera sobre descriptores de archivo numéricos:
 
-- **`mywrite <archivo> "<texto>"`**: 
-  - `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)`: Abre o crea el archivo asignando un descriptor numérico.
-  - `os.write(fd, text.encode())`: Escribe los bytes directamente mediante el descriptor.
-  - `os.close(fd)`: Libera el descriptor en la tabla de archivos abiertos del kernel.
-
+- **`mywrite <archivo> "<texto>"`**:
+  - Abre o crea el archivo con banderas POSIX (`O_CREAT | O_WRONLY | O_TRUNC`) y permisos `0644`.
+  - Garantiza la escritura completa del buffer mediante la función auxiliar `write_all()`.
+  - Asegura la liberación del descriptor en el Kernel mediante bloques `try/finally`.
 - **`mycat <archivo>`**:
-  - `os.open(path, os.O_RDONLY)`: Obtiene el descriptor en modo lectura.
-  - `os.read(fd, buffer_size)`: Lee bloques de bytes usando un búfer de memoria.
-  - `os.write(1, chunk)`: Escribe los bytes leídos en la salida estándar (`stdout`, descriptor `1`).
+  - Abre el archivo en modo de solo lectura (`O_RDONLY`).
+  - Lee bloques fijos de `1024 bytes` usando `os.read()`.
+  - Vuelca los datos directamente a la salida estándar (`stdout`, descriptor `1`) con `os.write(1, chunk)`.
 
-### 3. Manejo de Señales (`signals_env.py`)
-- **`signal.signal(signal.SIGINT, handler)`**: Intercepta la señal de interrupción del teclado (`Ctrl + C`).
-- Evita la terminación abrupta del programa, imprimiendo una nueva línea limpia en la consola y manteniendo la estabilidad del intérprete.
+### 3. Variables de Entorno y Control de Señales (`file_ops.py` / `signals_env.py`)
+- **`getenv <VARIABLE>` / `myenv <VARIABLE>`**: Consulta el valor de una variable específica en `os.environ`.
+- **`myenv` (sin argumentos)**: Muestra el mapa completo de variables de entorno exportadas en la sesión.
+- **Captura de `SIGINT` (`Ctrl + C`)**: Manejador `handle_sigint()` intercepta la interrupción del teclado mediante `os.write()`, evitando el colapso del Shell y redibujando el prompt interactivo.
 
 ---
 
-# Prueba de gestión de procesos (fork/execvp/waitpid)
-myshell:/home/user$ ls -la
+## Guía de Ejecución y Pruebas
 
-# Prueba de escritura con descriptores de bajo nivel
-myshell:/home/user$ mywrite demo.txt "Prueba de syscalls"
+### Opción A: Ejecución en Python
 
-# Prueba de lectura a nivel de kernel
-myshell:/home/user$ mycat demo.txt
+1. **Iniciar el Shell interactivo:**
+   ```bash
+   python3 main.py
 
-# Captura de señal SIGINT (presionar Ctrl + C)
+   # Comandos externos (fork + execvp + waitpid)
+ls -la
+pwd
+
+# Operaciones I/O a bajo nivel
+mywrite demo.txt "Prueba de kernel POSIX"
+mycat demo.txt
+
+# Variables de entorno
+getenv USER
+myenv
+
+# Intercepción de teclado (Presionar Ctrl + C en el teclado)
 ^C
 
-# Salir del programa
-myshell:/home/user$ exit
+# Salir de la sesión
+exit
 
----
+# Opción B: Ejecución de la Suite Automatizada de Pruebas
+Para ejecutar las 4 pruebas unitarias automatizadas integradas en la raíz del proyecto:
 
-### ¿Cómo agregarlo o modificarlo en tu proyecto?
+python3 test_suite.py
 
-Si deseas actualizar el archivo `README.md` directamente en tu terminal de WSL:
+# RESULTADO ESPERADO
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.280s
 
-1. Ejecuta:
-   ```bash
-   code README.md
+OK
+
+# Opción C: Compilación y Ejecución del Respaldo en C Nativo
+gcc myshell.c -o myshell
+
+./myshell

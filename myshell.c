@@ -13,7 +13,7 @@
 
 extern char **environ;
 
-/* Remover comillas alrededor de argumentos */
+
 void clean_quotes(char *str) {
     if (str == NULL) return;
     int len = strlen(str);
@@ -23,12 +23,12 @@ void clean_quotes(char *str) {
     }
 }
 
-/* Manejador de señal SIGINT (Ctrl+C) */
+
 void handle_sigint(int sig) {
     write(1, "\n[MyShell-C] Presione 'exit' para salir > ", 41);
 }
 
-/* Comando interno mycat */
+
 void builtin_cat(char **args) {
     if (args[1] == NULL) {
         fprintf(stderr, "myshell: uso: mycat <nombre_archivo>\n");
@@ -57,7 +57,7 @@ void builtin_cat(char **args) {
     close(fd);
 }
 
-/* Comando interno mywrite con garantia de escritura de bajo nivel */
+
 void builtin_write(char **args) {
     if (args[1] == NULL || args[2] == NULL) {
         fprintf(stderr, "myshell: uso: mywrite <nombre_archivo> \"<texto>\"\n");
@@ -85,7 +85,7 @@ void builtin_write(char **args) {
     printf("Archivo '%s' escrito exitosamente mediante llamadas al kernel.\n", args[1]);
 }
 
-/* Comando interno para variables de entorno (myenv / getenv) */
+
 void builtin_env(char **args) {
     if (args[1] == NULL) {
         for (char **env = environ; *env != NULL; env++) {
@@ -102,7 +102,7 @@ void builtin_env(char **args) {
     }
 }
 
-/* Ejecucion de procesos externos (fork, execvp, waitpid) */
+
 void execute_external_command(char **args) {
     for (int i = 0; args[i] != NULL; i++) {
         clean_quotes(args[i]);
