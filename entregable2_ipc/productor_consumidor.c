@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿/* ============================================================
  *  productor_consumidor.c
  *  Proyecto CoreOS — IF0702 | Entrega 2: IPC y Concurrencia
@@ -202,3 +203,5 @@ int main(void) {
 
     return 0;
 }
+=======
+>>>>>>> 3e4cb37fe09f2416269fa38a074a5291f05eeda5
