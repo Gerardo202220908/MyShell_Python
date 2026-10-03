@@ -1,12 +1,13 @@
 /* ============================================================
  *  productor_consumidor.c
  *  Proyecto CoreOS — IF0702 | Entrega 2: IPC y Concurrencia
- *  Universidad Ricardo Palma — Semestre 2026-I
+ *  Universidad Ricardo Palma — Semestre 2026-II
  *
  *  Implementa el patron Bounded-Buffer (Buffer Acotado) con:
- *   - Multihilo POSIX     (pthread_create / pthread_join)
+ *   - Multihilo POSIX     (pthread_create / pthread_join con verificacion de errores)
  *   - Exclusion Mutua     (sem_init / sem_wait / sem_post como mutex binario)
  *   - Sin Interbloqueo    (orden estricto: semaforo de conteo ANTES de mutex)
+ *   - Invariantes         (assert para garantia formal de no corrupcion del buffer)
  *
  *  Compilacion:
  *      gcc -Wall -pthread productor_consumidor.c -o productor_consumidor
@@ -17,6 +18,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>     /* strerror() para reporte de errores en pthreads */
+#include <assert.h>     /* assert() para verificacion formal de invariantes */
 #include <pthread.h>    /* PILAR 1: Multihilo POSIX                  */
 #include <semaphore.h>  /* PILAR 2: Semaforos POSIX (exclusion mutua) */
 #include <unistd.h>     /* usleep()                                   */
@@ -92,6 +95,9 @@ void *productor(void *arg) {
         cola         = (cola + 1) % TAMANIO_BUFFER;
         count++;
 
+        /* Verificacion de invariante formal: no sobrellenado del buffer */
+        assert(count >= 0 && count <= TAMANIO_BUFFER);
+
         printf("[PRODUCTOR-%d] Inserto item %3d  | buffer: %d/%d\n",
                id, item, count, TAMANIO_BUFFER);
         fflush(stdout);
@@ -127,6 +133,9 @@ void *consumidor(void *arg) {
         cabeza   = (cabeza + 1) % TAMANIO_BUFFER;
         count--;
 
+        /* Verificacion de invariante formal: no subflujo del buffer */
+        assert(count >= 0 && count <= TAMANIO_BUFFER);
+
         printf("[CONSUMIDOR-%d] Extrajo  item %3d  | buffer: %d/%d\n",
                id, item, count, TAMANIO_BUFFER);
         fflush(stdout);
@@ -151,16 +160,25 @@ int main(void) {
            NUM_PRODUCTORES, NUM_CONSUMIDORES, TAMANIO_BUFFER);
     printf("==========================================================\n\n");
 
-    /* ── PILAR 2: Inicializacion de semaforos ─────────────────────────
+    /* ── PILAR 2: Inicializacion de semaforos con verificacion de errores ──
      *  sem_init(&sem, pshared, valor_inicial)
      *   - pshared = 0  → compartido entre hilos del mismo proceso
      *   - mutex   = 1  → cerrojo libre al inicio
      *   - vacios  = N  → todas las ranuras vacias al inicio
      *   - llenos  = 0  → ninguna ranura llena al arrancar
      * ──────────────────────────────────────────────────────────────── */
-    sem_init(&mutex,  0, 1);               /* Mutex binario             */
-    sem_init(&vacios, 0, TAMANIO_BUFFER);  /* Semaforo ranuras vacias   */
-    sem_init(&llenos, 0, 0);               /* Semaforo ranuras llenas   */
+    if (sem_init(&mutex, 0, 1) != 0) {
+        perror("Error critico: sem_init(mutex) fallo");
+        exit(EXIT_FAILURE);
+    }
+    if (sem_init(&vacios, 0, TAMANIO_BUFFER) != 0) {
+        perror("Error critico: sem_init(vacios) fallo");
+        exit(EXIT_FAILURE);
+    }
+    if (sem_init(&llenos, 0, 0) != 0) {
+        perror("Error critico: sem_init(llenos) fallo");
+        exit(EXIT_FAILURE);
+    }
 
     /* ── PILAR 1: Arrays de identificadores de hilo ──────────────────── */
     pthread_t h_productores[NUM_PRODUCTORES];
@@ -168,24 +186,40 @@ int main(void) {
     int ids_prod[NUM_PRODUCTORES];
     int ids_cons[NUM_CONSUMIDORES];
 
-    /* ── PILAR 1: Creacion de hilos productores ───────────────────────── */
+    /* ── PILAR 1: Creacion de hilos productores con verificacion de error */
     for (int i = 0; i < NUM_PRODUCTORES; i++) {
         ids_prod[i] = i + 1;
-        pthread_create(&h_productores[i], NULL, productor, &ids_prod[i]);
+        int rc = pthread_create(&h_productores[i], NULL, productor, &ids_prod[i]);
+        if (rc != 0) {
+            fprintf(stderr, "Error al crear hilo productor %d: %s\n", ids_prod[i], strerror(rc));
+            exit(EXIT_FAILURE);
+        }
     }
 
-    /* ── PILAR 1: Creacion de hilos consumidores ─────────────────────── */
+    /* ── PILAR 1: Creacion de hilos consumidores con verificacion de error */
     for (int i = 0; i < NUM_CONSUMIDORES; i++) {
         ids_cons[i] = i + 1;
-        pthread_create(&h_consumidores[i], NULL, consumidor, &ids_cons[i]);
+        int rc = pthread_create(&h_consumidores[i], NULL, consumidor, &ids_cons[i]);
+        if (rc != 0) {
+            fprintf(stderr, "Error al crear hilo consumidor %d: %s\n", ids_cons[i], strerror(rc));
+            exit(EXIT_FAILURE);
+        }
     }
 
-    /* ── PILAR 1: Espera de terminacion limpia (join) ────────────────── */
+    /* ── PILAR 1: Espera de terminacion limpia (join) con verificacion ── */
     for (int i = 0; i < NUM_PRODUCTORES; i++) {
-        pthread_join(h_productores[i], NULL);
+        int rc = pthread_join(h_productores[i], NULL);
+        if (rc != 0) {
+            fprintf(stderr, "Error esperando termino del productor %d: %s\n", i + 1, strerror(rc));
+            exit(EXIT_FAILURE);
+        }
     }
     for (int i = 0; i < NUM_CONSUMIDORES; i++) {
-        pthread_join(h_consumidores[i], NULL);
+        int rc = pthread_join(h_consumidores[i], NULL);
+        if (rc != 0) {
+            fprintf(stderr, "Error esperando termino del consumidor %d: %s\n", i + 1, strerror(rc));
+            exit(EXIT_FAILURE);
+        }
     }
 
     /* ── Destruccion de semaforos y cierre ───────────────────────────── */
