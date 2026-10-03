@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -108,12 +108,13 @@ sem_init(&amp;llenos, 0, 0);              /* Conteo: ranuras llenas disponibles 
 </table>
 <h2>1.3 Configuracion del Sistema</h2>
 <pre>
-#define TAMANIO_BUFFER   5   /* Ranuras del buffer circular          */
-#define NUM_PRODUCTORES  2   /* Hilos que insertan items             */
-#define NUM_CONSUMIDORES 3   /* Hilos que extraen items              */
-#define ITEMS_POR_HILO   4   /* Total producido=8, consumido=12      */
+#define TAMANIO_BUFFER       5   /* Ranuras del buffer circular          */
+#define NUM_PRODUCTORES      2   /* Hilos que insertan items             */
+#define NUM_CONSUMIDORES     3   /* Hilos que extraen items              */
+#define ITEMS_POR_PRODUCTOR  6   /* Total producido: 2 x 6 = 12 items    */
+#define ITEMS_POR_CONSUMIDOR 4   /* Total consumido: 3 x 4 = 12 items    */
 </pre>
-<div class="nota"><strong>Nota de balance:</strong> Con 2 productores x 4 items = 8 items producidos y 3 consumidores x 4 items = 12 que intentan consumir, los consumidores esperaran bloqueados en <code>sem_wait(&amp;llenos)</code> hasta que los productores finalicen. Esto demuestra bloqueo controlado sin deadlock.</div>
+<div class="nota"><strong>Nota de balance y terminacion limpia:</strong> Con 2 productores &times; 6 &iacute;tems = 12 &iacute;tems producidos y 3 consumidores &times; 4 &iacute;tems = 12 &iacute;tems consumidos, la carga est&aacute; balanceada de forma exacta. Todos los hilos concluyen su ciclo, <code>pthread_join()</code> retorna limpiamente y se garantiza liberaci&oacute;n total de recursos sin bloqueos residuales.</div>
 <div class="footer-page"><span>Universidad Ricardo Palma &mdash; IF0702 &mdash; Entrega 2</span><span>Pagina 2</span></div>
 </div>
 

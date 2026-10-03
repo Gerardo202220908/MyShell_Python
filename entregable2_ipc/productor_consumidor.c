@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
  *  productor_consumidor.c
  *  Proyecto CoreOS — IF0702 | Entrega 2: IPC y Concurrencia
  *  Universidad Ricardo Palma — Semestre 2026-I
@@ -25,10 +25,11 @@
 /* ─────────────────────────────────────────────────────────── */
 /*  PARAMETROS DEL BUFFER ACOTADO                              */
 /* ─────────────────────────────────────────────────────────── */
-#define TAMANIO_BUFFER   5   /* Capacidad maxima del buffer circular  */
-#define NUM_PRODUCTORES  2   /* Numero de hilos productores           */
-#define NUM_CONSUMIDORES 3   /* Numero de hilos consumidores          */
-#define ITEMS_POR_HILO   4   /* Items que produce/consume cada hilo   */
+#define TAMANIO_BUFFER       5   /* Capacidad maxima del buffer circular  */
+#define NUM_PRODUCTORES      2   /* Numero de hilos productores           */
+#define NUM_CONSUMIDORES     3   /* Numero de hilos consumidores          */
+#define ITEMS_POR_PRODUCTOR  6   /* Items producidos por hilo (2 * 6 = 12)*/
+#define ITEMS_POR_CONSUMIDOR 4   /* Items consumidos por hilo (3 * 4 = 12)*/
 
 /* ─────────────────────────────────────────────────────────── */
 /*  BUFFER CIRCULAR COMPARTIDO (Seccion Critica)               */
@@ -69,7 +70,7 @@ static void retardo_aleatorio(void) {
 void *productor(void *arg) {
     int id = *(int *)arg;
 
-    for (int i = 0; i < ITEMS_POR_HILO; i++) {
+    for (int i = 0; i < ITEMS_POR_PRODUCTOR; i++) {
         int item = id * 100 + i;   /* Item unico identificable por productor */
 
         retardo_aleatorio();       /* Simula tiempo de produccion            */
@@ -107,7 +108,7 @@ void *productor(void *arg) {
 void *consumidor(void *arg) {
     int id = *(int *)arg;
 
-    for (int i = 0; i < ITEMS_POR_HILO; i++) {
+    for (int i = 0; i < ITEMS_POR_CONSUMIDOR; i++) {
         retardo_aleatorio();       /* Simula tiempo de procesamiento         */
 
         /* ── PILAR 3: Orden correcto → evita deadlock ─────────────────
@@ -192,8 +193,8 @@ int main(void) {
 
     printf("\n==========================================================\n");
     printf("  Ejecucion completada. Sin Deadlocks. Sin Race Conditions.\n");
-    printf("  Items producidos:  %d\n", NUM_PRODUCTORES * ITEMS_POR_HILO);
-    printf("  Items consumidos:  %d\n", NUM_CONSUMIDORES * ITEMS_POR_HILO);
+    printf("  Items producidos:  %d\n", NUM_PRODUCTORES * ITEMS_POR_PRODUCTOR);
+    printf("  Items consumidos:  %d\n", NUM_CONSUMIDORES * ITEMS_POR_CONSUMIDOR);
     printf("  Estado del buffer: %d elemento(s) restante(s)\n", count);
     printf("==========================================================\n");
 
