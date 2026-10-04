@@ -87,6 +87,7 @@ void *productor(void *arg) {
          *  2. sem_wait(&mutex):  adquiere el cerrojo de exclusion mutua
          *     SOLO cuando ya hay espacio garantizado en el buffer.
          * ──────────────────────────────────────────────────────────── */
+        
         sem_wait(&vacios);         /* Espera ranura vacia (conteo)           */
         sem_wait(&mutex);          /* Adquiere el mutex binario (PILAR 2)    */
 
