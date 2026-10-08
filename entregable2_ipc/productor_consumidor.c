@@ -1,11 +1,5 @@
 /* productor_consumidor.c -- CoreOS-IF0702 | Entrega 2: IPC y Concurrencia
- * Bounded-Buffer con pthreads + semaforos POSIX.
- *
- * Compilar: gcc -Wall -pthread productor_consumidor.c -o productor_consumidor
- * Ejecutar: ./productor_consumidor [normal|prod-rapido|cons-rapido]
- *   normal      : retardos similares en ambos lados (por defecto)
- *   prod-rapido : productores sin retardo -> el buffer llega a 5/5 y los productores se bloquean
- *   cons-rapido : consumidores sin retardo -> el buffer llega a 0/5 y los consumidores se bloquean
+
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +24,7 @@ static sem_t mutex;
 static sem_t vacios;
 static sem_t llenos;
 
-/* Modo de prueba: 0 normal, 1 productores rapidos, 2 consumidores rapidos */
+
 static int modo = 0;
 
 static void retardo_aleatorio(unsigned int *seed) {
