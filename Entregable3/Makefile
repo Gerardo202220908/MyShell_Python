@@ -15,6 +15,7 @@ run: $(TARGET)
 
 plots: run
 	python3 generar_graficos.py
+	python3 generar_resumen.py
 
 clean:
-	rm -f $(TARGET) reporte_thrashing.csv reporte_quantum.csv traza_*.txt grafico_*.png
+	rm -f $(TARGET) reporte_thrashing.csv reporte_quantum.csv reporte_resumen.csv traza_*.txt grafico_*.png

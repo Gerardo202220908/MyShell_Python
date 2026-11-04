@@ -8,6 +8,13 @@
  *   - Cada referencia a memoria consume 1 u de CPU util.
  *   - Un fallo de pagina agrega PF_PENALTY u de E/S de disco (CPU detenida).
  *   - Cambiar de un proceso a otro cuesta CS_COSTO u (conmutacion de contexto).
+ *
+ * Deteccion de thrashing:
+ *   - Ventana deslizante de VENTANA_THR referencias.
+ *   - Si la tasa de fallos dentro de la ventana >= UMBRAL_THRASHING,
+ *     se considera que el sistema esta en thrashing.
+ *   - Se exportan PctThrashing (fraccion de referencias en thrashing)
+ *     y EventosThrashing (transiciones hacia thrashing).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +28,8 @@
 #define PF_PENALTY       5
 #define CS_COSTO         1
 #define UMBRAL_THRASHING 0.50   /* tasa de fallos >= 50% => thrashing */
+#define VENTANA_THR      20     /* ventana deslizante de referencias */
+#define COLA_MAX         4096
 
 typedef enum { FIFO, LRU, RELOJ } AlgoReemplazo;
 typedef enum { PLAN_RR, PLAN_SJF } Planificador;
@@ -41,7 +50,10 @@ typedef struct {
     int referencias_memoria[MAX_REFS];
     int num_referencias;
     EntradaTablaPagina tabla_paginas[MAX_PAGINAS_PROC];
+    bool paginas_vistas[MAX_PAGINAS_PROC];  /* para fallos obligatorios */
     int page_faults;
+    int pf_obligatorios;
+    int pf_capacidad;
 } Proceso;
 
 typedef struct {
@@ -53,7 +65,10 @@ typedef struct {
 
 typedef struct {
     double avg_wt, avg_tat, avg_rt, tasa_fallos, util_cpu;
+    double pct_thrashing;
     int total_pf, cambios_ctx, tiempo_total;
+    int pf_obligatorios, pf_capacidad;
+    int eventos_thrashing;
 } Resultado;
 
 /* ---------- estado global del simulador ---------- */
@@ -65,6 +80,41 @@ static int contador_tiempo_global = 0;
 static Proceso *procesos_globales = NULL;
 static int total_procesos_globales = 0;
 static FILE *traza = NULL;
+
+/* ---------- detector de thrashing (ventana deslizante) ---------- */
+static unsigned char ventana[VENTANA_THR];
+static int vpos = 0, vcount = 0, vfallos = 0;
+static int en_thrashing = 0, eventos_thrashing = 0, refs_thrashing = 0;
+
+static void reiniciar_ventana(void) {
+    memset(ventana, 0, sizeof ventana);
+    vpos = vcount = vfallos = 0;
+    en_thrashing = eventos_thrashing = refs_thrashing = 0;
+}
+
+/* Se llama UNA VEZ POR REFERENCIA (hit o fallo), nunca solo en fallos. */
+static void registrar_ref(int fallo) {
+    if (vcount == VENTANA_THR) {
+        vfallos -= ventana[vpos];
+    } else {
+        vcount++;
+    }
+    ventana[vpos] = (unsigned char)(fallo ? 1 : 0);
+    vfallos += fallo ? 1 : 0;
+    vpos = (vpos + 1) % VENTANA_THR;
+
+    int thr = (vcount == VENTANA_THR) &&
+            ((double)vfallos / VENTANA_THR >= UMBRAL_THRASHING);
+
+    if (thr && !en_thrashing) {
+        eventos_thrashing++;
+        if (traza)
+            fprintf(traza, "--- THRASHING detectado en ref=%d ---\n",
+                    contador_tiempo_global);
+    }
+    en_thrashing = thr;
+    if (thr) refs_thrashing++;
+}
 
 static Proceso *buscar_proceso(int pid) {
     for (int k = 0; k < total_procesos_globales; k++)
@@ -116,6 +166,7 @@ static int acceder_memoria(Proceso *p, int dir_virtual, int *dir_fisica) {
         pte->ultimo_acceso = contador_tiempo_global;
         ram[pte->marco_fisico].referenciado = true;
         ram[pte->marco_fisico].ultimo_acceso = contador_tiempo_global;
+        p->paginas_vistas[page_number] = true;
         *dir_fisica = pte->marco_fisico * TAM_PAGINA + offset;
         if (traza) fprintf(traza, "%4d | P%d | 0x%06X | pag %2d | off %4d | marco %2d | 0x%06X | HIT\n",
             contador_tiempo_global, p->pid, dir_virtual, page_number, offset,
@@ -124,6 +175,13 @@ static int acceder_memoria(Proceso *p, int dir_virtual, int *dir_fisica) {
     }
 
     p->page_faults++;                                     /* FALLO */
+    if (!p->paginas_vistas[page_number]) {
+        p->paginas_vistas[page_number] = true;
+        p->pf_obligatorios++;
+    } else {
+        p->pf_capacidad++;
+    }
+
     int marco = -1;
     for (int i = 0; i < num_marcos_ram; i++)
         if (!ram[i].ocupado) { marco = i; break; }
@@ -135,8 +193,8 @@ static int acceder_memoria(Proceso *p, int dir_virtual, int *dir_fisica) {
         vpag = ram[marco].num_pagina;
         Proceso *o = buscar_proceso(vpid);
         if (o) { o->tabla_paginas[vpag].presente = false;
-                 o->tabla_paginas[vpag].marco_fisico = -1;
-                 o->tabla_paginas[vpag].referenciado = false; }
+                o->tabla_paginas[vpag].marco_fisico = -1;
+                o->tabla_paginas[vpag].referenciado = false; }
     }
     ram[marco].ocupado = true;
     ram[marco].pid_propietario = p->pid;
@@ -166,7 +224,9 @@ static void ejecutar(Proceso *p, int ticks, int *reloj, int *pf_total) {
         int idx = (p->rafaga_cpu - p->tiempo_restante + t) % p->num_referencias;
         int dfis;
         (*reloj)++;                                   /* 1 u de CPU util */
-        if (acceder_memoria(p, p->referencias_memoria[idx], &dfis)) {
+        int fallo = acceder_memoria(p, p->referencias_memoria[idx], &dfis);
+        registrar_ref(fallo);                         /* ventana de thrashing */
+        if (fallo) {
             (*pf_total)++;
             *reloj += PF_PENALTY;                     /* E/S de disco */
         }
@@ -190,18 +250,24 @@ static void conmutar(int *ultimo_pid, int pid, int *reloj, int *cs, FILE *log) {
 
 static Resultado calcular(Proceso procesos[], int n, int reloj, int pf, int cs) {
     Resultado r; memset(&r, 0, sizeof r);
-    int refs = 0, cpu = 0;
+    int refs = 0, cpu = 0, pf_oblig = 0, pf_cap = 0;
     for (int i = 0; i < n; i++) {
         r.avg_wt  += procesos[i].tiempo_espera;
         r.avg_tat += procesos[i].tiempo_retorno;
         r.avg_rt  += procesos[i].tiempo_inicio - procesos[i].tiempo_llegada;
         refs += procesos[i].rafaga_cpu;
         cpu  += procesos[i].rafaga_cpu;
+        pf_oblig += procesos[i].pf_obligatorios;
+        pf_cap   += procesos[i].pf_capacidad;
     }
     r.avg_wt /= n; r.avg_tat /= n; r.avg_rt /= n;
     r.total_pf = pf; r.cambios_ctx = cs; r.tiempo_total = reloj;
     r.tasa_fallos = (double)pf / refs;
     r.util_cpu = 100.0 * cpu / reloj;
+    r.pf_obligatorios = pf_oblig;
+    r.pf_capacidad = pf_cap;
+    r.pct_thrashing = (double)refs_thrashing / refs;
+    r.eventos_thrashing = eventos_thrashing;
     return r;
 }
 
@@ -209,18 +275,27 @@ static Resultado calcular(Proceso procesos[], int n, int reloj, int pf, int cs) 
 static Resultado simular_round_robin(Proceso procesos[], int n, int quantum, FILE *log) {
     procesos_globales = procesos; total_procesos_globales = n;
     int reloj = 0, completados = 0, pf = 0, cs = 0, ultimo = -1;
-    static int cola[4096]; int frente = 0, final = 0;
+    static int cola[COLA_MAX]; int frente = 0, final = 0;
     bool en_cola[MAX_PROCESOS] = { false };
 
+#define ENCOLAR(x) do { \
+        if (final >= COLA_MAX) { \
+            fprintf(stderr, "Error: cola de listos desbordada\n"); \
+            exit(EXIT_FAILURE); \
+        } \
+        cola[final++] = (x); \
+        en_cola[(x)] = true; \
+    } while (0)
+
     for (int i = 0; i < n; i++)
-        if (procesos[i].tiempo_llegada <= reloj) { cola[final++] = i; en_cola[i] = true; }
+        if (procesos[i].tiempo_llegada <= reloj) ENCOLAR(i);
 
     while (completados < n) {
         if (frente == final) {                        /* CPU ociosa */
             reloj++;
             for (int i = 0; i < n; i++)
                 if (procesos[i].tiempo_llegada <= reloj && !en_cola[i] && procesos[i].tiempo_restante > 0)
-                    { cola[final++] = i; en_cola[i] = true; }
+                    ENCOLAR(i);
             continue;
         }
         int idx = cola[frente++];
@@ -233,11 +308,12 @@ static Resultado simular_round_robin(Proceso procesos[], int n, int quantum, FIL
 
         for (int i = 0; i < n; i++)                   /* llegadas durante la rodaja */
             if (i != idx && procesos[i].tiempo_llegada <= reloj && !en_cola[i] && procesos[i].tiempo_restante > 0)
-                { cola[final++] = i; en_cola[i] = true; }
+                ENCOLAR(i);
 
-        if (p->tiempo_restante > 0) cola[final++] = idx;
+        if (p->tiempo_restante > 0) ENCOLAR(idx);
         else { finalizar(p, reloj); completados++; }
     }
+#undef ENCOLAR
     return calcular(procesos, n, reloj, pf, cs);
 }
 
@@ -285,6 +361,9 @@ static void reiniciar_procesos(Proceso src[], Proceso dest[], int n) {
         dest[i].tiempo_inicio = -1;
         dest[i].tiempo_fin = dest[i].tiempo_espera = dest[i].tiempo_retorno = 0;
         dest[i].page_faults = 0;
+        dest[i].pf_obligatorios = 0;
+        dest[i].pf_capacidad = 0;
+        memset(dest[i].paginas_vistas, 0, sizeof dest[i].paginas_vistas);
         for (int j = 0; j < MAX_PAGINAS_PROC; j++) {
             dest[i].tabla_paginas[j].presente = false;
             dest[i].tabla_paginas[j].marco_fisico = -1;
@@ -298,22 +377,27 @@ static Resultado correr(Proceso base[], int n, Planificador pl, AlgoReemplazo al
                         int marcos, int quantum, FILE *tr, FILE *log) {
     num_marcos_ram = marcos; algoritmo_reemplazo = al;
     ram = (MarcoRAM *)calloc(marcos, sizeof(MarcoRAM));
+    if (!ram) { perror("calloc"); exit(EXIT_FAILURE); }
     manecilla_reloj = 0; contador_tiempo_global = 0; traza = tr;
+    reiniciar_ventana();
     Proceso act[MAX_PROCESOS];
     reiniciar_procesos(base, act, n);
     Resultado r = (pl == PLAN_RR) ? simular_round_robin(act, n, quantum, log)
-                                  : simular_sjf(act, n, log);
+                                : simular_sjf(act, n, log);
     free(ram); traza = NULL;
     return r;
 }
 
 static void escribir_fila(FILE *f, Planificador pl, AlgoReemplazo al, int marcos, int q, Resultado r) {
-    fprintf(f, "%s,%s,%d,%d,%.2f,%.2f,%.2f,%d,%.4f,%.2f,%d,%d\n",
+    fprintf(f, "%s,%s,%d,%d,%.2f,%.2f,%.2f,%d,%.4f,%.2f,%d,%d,%d,%d,%.4f,%d\n",
         NOMBRE_ALGO[al], NOMBRE_PLAN[pl], marcos, q, r.avg_wt, r.avg_tat, r.avg_rt,
-        r.total_pf, r.tasa_fallos, r.util_cpu, r.cambios_ctx, r.tiempo_total);
+        r.total_pf, r.tasa_fallos, r.util_cpu, r.cambios_ctx, r.tiempo_total,
+        r.pf_obligatorios, r.pf_capacidad, r.pct_thrashing, r.eventos_thrashing);
 }
 static const char *CABECERA =
-    "Algoritmo,Planificador,MarcosRAM,Quantum,AVG_WT,AVG_TAT,AVG_RT,TotalPageFaults,TasaFallos,UtilCPU,CambiosContexto,TiempoTotal\n";
+    "Algoritmo,Planificador,MarcosRAM,Quantum,AVG_WT,AVG_TAT,AVG_RT,TotalPageFaults,"
+    "TasaFallos,UtilCPU,CambiosContexto,TiempoTotal,PF_Obligatorios,PF_Capacidad,"
+    "PctThrashing,EventosThrashing\n";
 
 int main(void) {
     Proceso carga[4];
@@ -333,7 +417,7 @@ int main(void) {
 
     printf("%-6s %-4s %6s %8s %8s %6s %7s %6s\n", "ALGO", "PLAN", "MARCOS", "AVG_WT", "AVG_TAT", "PF", "UTIL%", "CS");
     for (int pl = PLAN_RR; pl <= PLAN_SJF; pl++)
-      for (int al = FIFO; al <= RELOJ; al++)
+    for (int al = FIFO; al <= RELOJ; al++)
         for (int marcos = 2; marcos <= 24; marcos += 2) {
             int q = (pl == PLAN_RR) ? 3 : 0;
             bool demo = (pl == PLAN_RR && al == LRU && marcos == 4);
@@ -341,13 +425,15 @@ int main(void) {
             escribir_fila(csv, pl, al, marcos, q, r);
             if (pl == PLAN_RR || al == LRU)
                 printf("%-6s %-4s %6d %8.2f %8.2f %6d %7.2f %6d\n", NOMBRE_ALGO[al], NOMBRE_PLAN[pl],
-                       marcos, r.avg_wt, r.avg_tat, r.total_pf, r.util_cpu, r.cambios_ctx);
+                    marcos, r.avg_wt, r.avg_tat, r.total_pf, r.util_cpu, r.cambios_ctx);
         }
 
-    int quantums[] = { 1, 2, 3, 4, 5, 8, 10, 15, 20 };
+    /* Barrido de quantum ampliado hasta 50 ms (rango recomendado en la semana 9) */
+    int quantums[] = { 1, 2, 3, 4, 5, 8, 10, 15, 20, 25, 30, 40, 50 };
     int marcos_q[] = { 6, 20 };
+    int num_q = (int)(sizeof quantums / sizeof quantums[0]);
     for (int m = 0; m < 2; m++)
-        for (int k = 0; k < 9; k++) {
+        for (int k = 0; k < num_q; k++) {
             Resultado r = correr(carga, n, PLAN_RR, LRU, marcos_q[m], quantums[k], NULL, NULL);
             escribir_fila(csvq, PLAN_RR, LRU, marcos_q[m], quantums[k], r);
         }

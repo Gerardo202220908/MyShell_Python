@@ -19,6 +19,7 @@ t | PID | dir virtual | pagina | offset | marco | dir fisica | resultado
   18 | P2 | 0x000813 | pag  0 | off 2067 | marco  2 | 0x002813 | FALLO (victima: P1 pag 3)
   19 | P3 | 0x0022CE | pag  2 | off  718 | marco  3 | 0x0032CE | FALLO (victima: P1 pag 0)
   20 | P3 | 0x00287E | pag  2 | off 2174 | marco  3 | 0x00387E | HIT
+--- THRASHING detectado en ref=20 ---
   21 | P3 | 0x003F20 | pag  3 | off 3872 | marco  0 | 0x000F20 | FALLO (victima: P2 pag 1)
   22 | P4 | 0x00066B | pag  0 | off 1643 | marco  1 | 0x00166B | FALLO (victima: P2 pag 2)
   23 | P4 | 0x00259E | pag  2 | off 1438 | marco  2 | 0x00259E | FALLO (victima: P2 pag 0)
