@@ -124,11 +124,11 @@ b1 = ax[0].bar([i - ancho / 2 for i in pos], wt, ancho, label="WT (espera)", col
 b2 = ax[0].bar([i + ancho / 2 for i in pos], rt, ancho, label="RT (respuesta)", color="tab:orange")
 for b in list(b1) + list(b2):
     ax[0].text(b.get_x() + b.get_width() / 2, b.get_height() + 4,
-            f"{b.get_height():.1f}", ha="center", fontsize=9)
+            f"{b.get_height():.2f}", ha="center", fontsize=10)
 ax[0].set_xticks(pos)
 ax[0].set_xticklabels(planes)
 ax[0].set_ylabel("ms")
-ax[0].set_title("WT vs RT a 24 marcos (LRU)")
+ax[0].set_title("WT vs RT a 24 marcos (LRU)\n23 fallos en ambos planificadores")
 ax[0].legend()
 ax[0].grid(True, axis="y")
 
@@ -137,6 +137,18 @@ for plan, c, m in [("RR", "tab:blue", "s"), ("SJF", "tab:orange", "D")]:
     s = d[(d.Planificador == plan) & (d.Algoritmo == "LRU")].sort_values("MarcosRAM")
     ax[1].plot(s.MarcosRAM, s.AVG_WT, marker=m, color=c, lw=2, ls="-", label=f"{plan} WT")
     ax[1].plot(s.MarcosRAM, s.AVG_RT, marker=m, color=c, lw=2, ls="--", label=f"{plan} RT")
+    last = s.iloc[-1]
+    ax[1].annotate(f"{last.AVG_WT:.2f}", (last.MarcosRAM, last.AVG_WT),
+                   textcoords="offset points", xytext=(6, 4), fontsize=9, color=c)
+    ax[1].annotate(f"{last.AVG_RT:.2f}", (last.MarcosRAM, last.AVG_RT),
+                   textcoords="offset points", xytext=(6, 4), fontsize=9, color=c)
+for plan, xoff in [("SJF", (7.2, 260)), ("RR", (11.5, 620))]:
+    s = d[(d.Planificador == plan) & (d.Algoritmo == "LRU")].sort_values("MarcosRAM")
+    hit = s[s.TotalPageFaults == s.TotalPageFaults.min()].iloc[0]
+    ax[1].annotate(
+        f"{plan} llega a {int(hit.TotalPageFaults)} fallos\ncon {int(hit.MarcosRAM)} marcos",
+        xy=(hit.MarcosRAM, hit.AVG_WT), xytext=xoff,
+        fontsize=9, arrowprops=dict(arrowstyle="->", color="gray"))
 ax[1].set_xlabel("Marcos de RAM")
 ax[1].set_ylabel("ms")
 ax[1].set_title("WT y RT vs marcos (LRU)\nsolida = WT, discontinua = RT")
